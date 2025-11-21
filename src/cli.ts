@@ -17,31 +17,83 @@ function extForImport(relativePath: string) {
   if (fs.existsSync(absPath + '.js')) return 'file://' + absPath + '.js';
   return relativePath;
 }
+// Import necessary functions directly
+import { loadConfig } from './config/index.js';
+import { startDevServer } from './dev/devServer.js';
+import { build } from './build/bundler.js';
+import { initProject } from './init/index.js';
 
 async function main() {
   const argv = yargs(hideBin(process.argv))
-    .command('init', 'Initialize project config', () => { }, async (args: any) => {
-      const modPath = extForImport('./init/index');
-      const mod = await import(modPath);
-      await mod.initProject(process.cwd());
-    })
-    .command('dev', 'Start dev server', () => { }, async (args: any) => {
-      const cfgMod = await import(extForImport('./config/index'));
-      const cfg = await cfgMod.loadConfig(process.cwd());
-      const modPath = extForImport('./dev/devServer');
-      const mod = await import(modPath);
-      await mod.startDevServer(cfg);
-    })
-    .command('build', 'Create a production build', () => { }, async (args: any) => {
-      const cfgMod = await import(extForImport('./config/index'));
-      const cfg = await cfgMod.loadConfig(process.cwd());
-      const modPath = extForImport('./build/bundler');
-      const mod = await import(modPath);
-      await mod.build(cfg);
-    })
-    .demandCommand(1)
+    .command(
+      'dev',
+      'Start development server',
+      (yargs: any) => {
+        return yargs.option('port', {
+          type: 'number',
+          description: 'Server port',
+          default: 3000
+        });
+      },
+      async (args: any) => {
+        const cfg = await loadConfig(process.cwd());
+        cfg.port = args.port;
+        await startDevServer(cfg);
+      }
+    )
+    .command(
+      'build',
+      'Build for production',
+      () => { },
+      async () => {
+        const cfg = await loadConfig(process.cwd());
+        await build(cfg);
+      }
+    )
+    .command(
+      'init',
+      'Initialize project configuration',
+      (yargs: any) => {
+        return yargs.option('yes', {
+          type: 'boolean',
+          description: 'Use defaults',
+          default: false
+        });
+      },
+      async (args: any) => {
+        await initProject(process.cwd());
+      }
+    )
+    .command(
+      'builder',
+      'Launch Visual Builder UI',
+      (yargs: any) => {
+        return yargs.option('port', {
+          type: 'number',
+          description: 'Builder UI port',
+          default: 3030
+        }).option('no-open', {
+          type: 'boolean',
+          description: 'Don\'t open browser',
+          default: false
+        });
+      },
+      async (args: any) => {
+        const { startBuilderServer } = await import('./builder/server.js');
+        await startBuilderServer({
+          port: args.port,
+          root: process.cwd()
+        });
+
+        if (!args['no-open']) {
+          const open = (await import('open')).default;
+          await open(`http://localhost:${args.port}`);
+        }
+      }
+    )
+    .demandCommand(1, 'You must specify a command')
     .help()
-    .parse();
+    .argv;
 }
 
 main().catch((err) => {

@@ -87,3 +87,13 @@ export async function loadConfig(cwd: string): Promise<BuildConfig> {
     process.exit(1);
   }
 }
+
+/**
+ * Save configuration to file
+ */
+export async function saveConfig(cwd: string, config: any): Promise<void> {
+  const jsonPath = path.join(cwd, 'nextgen.build.json');
+  await fs.writeFile(jsonPath, JSON.stringify(config, null, 2), 'utf-8');
+  log.info(`Configuration saved to ${jsonPath}`);
+}
+
