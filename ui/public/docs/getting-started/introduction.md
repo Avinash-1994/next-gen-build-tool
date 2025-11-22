@@ -75,7 +75,7 @@ Advanced developers get:
 
 ### 1. Visual Pipeline Builder
 
-![Visual Pipeline Builder](../images/builder-overview.png)
+![Visual Pipeline Builder](../images/builder-interface.png)
 
 Build pipelines visually with:
 - **Drag-and-drop** node placement

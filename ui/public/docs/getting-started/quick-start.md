@@ -85,9 +85,7 @@ NextGen Build Tool v1.0.0
 - **App**: http://localhost:3000
 - **Visual Builder**: http://localhost:3000/__nextgen
 
-You should see the default React app running:
-
-![Default React App](../images/default-app.png)
+You should see the default React app running!
 
 ---
 
@@ -110,50 +108,29 @@ You'll see the main interface with four panels:
 
 ---
 
-## Step 4: Create Your First Pipeline
+## Step 4: Build Your Pipeline
 
-Let's build a simple pipeline: **Resolve** → **Transform** → **Bundle**
+Let's create a simple build pipeline with three nodes.
 
-### 4.1 Add a Resolver Node
+### Add the Nodes
 
-1. Find the **Resolver** node in the left panel (🔍 icon)
-2. **Drag it** onto the canvas
-3. Drop it anywhere on the canvas
+In the Visual Builder, **drag these nodes** from the left panel onto the canvas:
 
-![Add Resolver Node](../images/add-resolver.gif)
+1. **Resolver** (🔍 icon) - Finds and resolves source files
+2. **Transformer** (⚙️ icon) - Converts TypeScript/JSX to JavaScript
+3. **Bundler** (📦 icon) - Combines modules into bundles
 
-The Resolver node handles module path resolution and dependency discovery.
+![Add Nodes](../images/add-nodes.png)
 
-### 4.2 Add a Transformer Node
+### Connect the Nodes
 
-1. Find the **Transformer** node (⚙️ icon)
-2. Drag it onto the canvas
-3. Place it to the right of the Resolver
+Connect them in order by dragging from output (right side) to input (left side):
 
-![Add Transformer Node](../images/add-transformer.gif)
+```
+Resolver → Transformer → Bundler
+```
 
-The Transformer compiles/transpiles your code (JSX, TypeScript, etc.).
-
-### 4.3 Add a Bundler Node
-
-1. Find the **Bundler** node (📦 icon)
-2. Drag it onto the canvas
-3. Place it to the right of the Transformer
-
-![Add Bundler Node](../images/add-bundler.gif)
-
-The Bundler combines modules into optimized bundles.
-
-### 4.4 Connect the Nodes
-
-Now connect them in order:
-
-1. **Click and hold** the small circle on the **right** of the Resolver node (output)
-2. **Drag** to the circle on the **left** of the Transformer node (input)
-3. **Release** to create the connection
-4. **Repeat** to connect Transformer → Bundler
-
-![Connect Nodes](../images/connect-nodes.gif)
+![Connected Pipeline](../images/pipeline-demo.png)
 
 **Your pipeline should look like this:**
 ```
@@ -356,9 +333,7 @@ Try it:
 
 ### State Inspector (Debug Tool)
 
-Press **Ctrl+Shift+D** to open the State Inspector:
-
-![State Inspector](../images/state-inspector.png)
+Press **Ctrl+Shift+D** to open the State Inspector for debugging.
 
 Features:
 - View complete application state
@@ -382,8 +357,6 @@ Click **Show Analytics** in the toolbar to see:
 - **Dependency graph** visualization
 - **Build time** metrics
 - **Performance** insights
-
-![Analytics](../images/analytics.png)
 
 ---
 
