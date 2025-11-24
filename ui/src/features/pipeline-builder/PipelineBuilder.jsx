@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Save, Download, Upload, Trash2, Code, BarChart3, Undo2, Redo2, FolderOpen, Bug } from 'lucide-react'
+import { Save, Download, Upload, Trash2, Code, BarChart3, Undo2, Redo2, FolderOpen, Bug, Share2 } from 'lucide-react'
 import { usePipelineStore } from '../../stores/pipelineStore'
 import { useOnboardingStore } from '../../stores/onboardingStore'
 import { Button } from '../../components/ui/Button'
@@ -18,6 +18,9 @@ import SaveStatus from './components/SaveStatus'
 import StateInspector from '../../components/debug/StateInspector'
 import WelcomeModal from '../../components/onboarding/WelcomeModal'
 import ProductTour from '../../components/onboarding/ProductTour'
+import ExportDialog from './components/ExportDialog'
+import ImportDialog from './components/ImportDialog'
+import ShareDialog from './components/ShareDialog'
 
 export default function PipelineBuilder() {
     const { nodes, edges, generateConfig, reset, undo, redo, canUndo, canRedo, selectedNode, deleteNode, initHistory, clearSelection, loadConfig } = usePipelineStore()
@@ -27,6 +30,9 @@ export default function PipelineBuilder() {
     const [showSaveDialog, setShowSaveDialog] = useState(false)
     const [showPipelineManager, setShowPipelineManager] = useState(false)
     const [showStateInspector, setShowStateInspector] = useState(false)
+    const [showExportDialog, setShowExportDialog] = useState(false)
+    const [showImportDialog, setShowImportDialog] = useState(false)
+    const [showShareDialog, setShowShareDialog] = useState(false)
     const [currentPipelineId, setCurrentPipelineId] = useState(null)
     const [currentPipelineName, setCurrentPipelineName] = useState('')
 
@@ -273,13 +279,17 @@ export default function PipelineBuilder() {
                             <FolderOpen className="h-4 w-4 mr-1.5" />
                             Open
                         </Button>
-                        <Button variant="outline" size="sm" onClick={handleImport}>
+                        <Button variant="outline" size="sm" onClick={() => setShowImportDialog(true)}>
                             <Upload className="h-4 w-4 mr-1.5" />
                             Import
                         </Button>
-                        <Button variant="outline" size="sm" onClick={handleExport}>
+                        <Button variant="outline" size="sm" onClick={() => setShowExportDialog(true)}>
                             <Download className="h-4 w-4 mr-1.5" />
                             Export
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setShowShareDialog(true)}>
+                            <Share2 className="h-4 w-4 mr-1.5" />
+                            Share
                         </Button>
                         <Button variant="outline" size="sm" onClick={handleClear}>
                             <Trash2 className="h-4 w-4 mr-1.5" />
@@ -358,6 +368,11 @@ export default function PipelineBuilder() {
                 onComplete={handleTourComplete}
                 onSkip={handleTourSkip}
             />
+
+            {/* Collaboration Dialogs */}
+            {showExportDialog && <ExportDialog onClose={() => setShowExportDialog(false)} />}
+            {showImportDialog && <ImportDialog onClose={() => setShowImportDialog(false)} />}
+            {showShareDialog && <ShareDialog onClose={() => setShowShareDialog(false)} />}
         </div>
     )
 }
