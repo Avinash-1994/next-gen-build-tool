@@ -4,11 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && cp src/plugins/*.mjs dist/plugins/ 2>/dev/null || true",
+    "build": "npm run build:native && tsc -p tsconfig.build.json && cp nextgen_native.node dist/ && cp src/plugins/*.mjs dist/plugins/ 2>/dev/null || true",
+    "build:native": "cd src/native && napi build --platform --release --dts index.d.ts && cp *.node ../../nextgen_native.node 2>/dev/null || true",
     "dev": "node ./dist/cli.js dev",
     "start": "node ./dist/cli.js dev",
     "prepack": "node ./scripts/pack.js",
-    "test:repro": "node ./scripts/repro_test.mjs"
+    "test:repro": "node ./scripts/repro_test.mjs",
+    "builder": "node ./dist/cli.js builder"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.430.0",
@@ -26,9 +28,14 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@napi-rs/cli": "^3.4.1",
+    "@napi-rs/triples": "^2.1.4",
     "@types/babel__core": "^7.20.5",
     "@types/node": "^20.3.1",
     "@types/ws": "^8.5.4",
+    "esbuild-svelte": "^0.9.3",
+    "svelte": "^5.43.14",
+    "svelte-preprocess": "^6.0.3",
     "ts-node": "^10.9.1",
     "typescript": "^5.4.2"
   }

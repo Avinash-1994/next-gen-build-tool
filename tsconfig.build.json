@@ -2,7 +2,12 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "declaration": true,
-    "sourceMap": false
+    "sourceMap": false,
+    "module": "esnext",
+    "moduleResolution": "node"
   },
-  "exclude": ["node_modules", "tests", "ui"]
+  "exclude": [
+    "node_modules",
+    "tests"
+  ]
 }

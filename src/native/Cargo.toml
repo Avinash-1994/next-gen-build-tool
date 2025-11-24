@@ -1,0 +1,11 @@
+[package]
+name = "nextgen-native"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2.12.2", features = ["napi4", "async"] }
+napi-derive = "2.12.2"

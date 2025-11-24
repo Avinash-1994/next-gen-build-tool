@@ -13,6 +13,7 @@ const BuildConfigSchema = z.object({
   outDir: z.string().default('build_output'),
   port: z.number().default(5173),
   plugins: z.array(z.any()).optional(),
+  esbuildPlugins: z.array(z.any()).optional(),
 });
 
 export type BuildConfig = {
@@ -22,6 +23,7 @@ export type BuildConfig = {
   outDir: string;
   port: number;
   plugins?: any[];
+  esbuildPlugins?: any[];
 };
 
 export async function loadConfig(cwd: string): Promise<BuildConfig> {
@@ -46,7 +48,12 @@ export async function loadConfig(cwd: string): Promise<BuildConfig> {
         platform: 'node',
         format: 'esm',
         target: 'es2020',
-        external: ['esbuild', 'zod', 'kleur'] // exclude deps
+        external: [
+          'esbuild', 'zod', 'kleur',
+          'svelte-preprocess', 'svelte', 'esbuild-svelte',
+          // svelte-preprocess optional deps
+          'coffeescript', 'pug', 'stylus', 'less', 'postcss', 'sass', 'postcss-load-config', 'sugarss'
+        ] // exclude deps
       });
 
       try {

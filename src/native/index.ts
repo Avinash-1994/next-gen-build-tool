@@ -15,6 +15,10 @@ type NativeWorkerInstance = {
     transform(code: string, id: string): Promise<string>;
 };
 
+import { createRequire } from 'module';
+
+const nodeRequire = createRequire(import.meta.url);
+
 let nativeModule: NativeWorkerModule | null = null;
 
 /**
@@ -23,7 +27,7 @@ let nativeModule: NativeWorkerModule | null = null;
 function loadNative(): NativeWorkerModule {
     if (!nativeModule) {
         try {
-            nativeModule = require('../nextgen_native.node');
+            nativeModule = nodeRequire('../../nextgen_native.node');
         } catch (e) {
             throw new Error(`Failed to load Rust native worker: ${e}`);
         }

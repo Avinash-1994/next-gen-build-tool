@@ -46,7 +46,10 @@ export async function build(cfg: BuildConfig) {
     loader: { '.png': 'file', '.svg': 'file', '.css': 'css' },
     metafile: true,
     logLevel: 'info',
-    plugins: [createEsbuildPlugin(pluginManager)],
+    plugins: [
+      createEsbuildPlugin(pluginManager),
+      ...(cfg.esbuildPlugins || [])
+    ],
   });
 
   // write minimal cache entry: manifest of output files

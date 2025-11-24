@@ -213,15 +213,20 @@ function watchConfigFile(root: string, onChange: (config: any) => void) {
         path.join(root, 'nextgen.build.ts')
     ];
 
-    configPaths.forEach(configPath => {
-        watch(configPath, { persistent: false }, async () => {
-            try {
-                const config = await loadConfig(root);
-                onChange(config);
-            } catch (error) {
-                console.error('[builder] Error watching config:', error);
-            }
-        });
+    configPaths.forEach(async configPath => {
+        try {
+            await fs.access(configPath);
+            watch(configPath, { persistent: false }, async () => {
+                try {
+                    const config = await loadConfig(root);
+                    onChange(config);
+                } catch (error) {
+                    console.error('[builder] Error watching config:', error);
+                }
+            });
+        } catch {
+            // Ignore missing config files
+        }
     });
 }
 
