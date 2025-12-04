@@ -6,6 +6,10 @@ import { DiskCache } from '../cache/index.js';
 import { createEsbuildPlugin } from '../plugins/esbuildAdapter.js';
 import { AssetPlugin } from '../plugins/assets.js';
 import { CssInJsPlugin } from '../plugins/css-in-js.js';
+import { FederationPlugin } from '../plugins/federation.js';
+import { EdgePlugin } from '../plugins/edge.js';
+import { WasmPlugin } from '../plugins/wasm.js';
+import { BuildReporterPlugin } from '../plugins/reporter.js';
 import { log } from '../utils/logger.js';
 
 export class ResolverStep implements PipelineStep {
@@ -78,6 +82,37 @@ export class BundlerStep implements PipelineStep {
             }
         ];
 
+        // Register Reporter
+        internalPlugins.push({
+            name: 'build-reporter-adapter',
+            setup(build: any) {
+                new BuildReporterPlugin().setup(build);
+            }
+        });
+
+        if (config.federation) {
+            internalPlugins.push({
+                name: 'federation-plugin-adapter',
+                setup(build: any) {
+                    new FederationPlugin(config.federation).setup(build);
+                }
+            });
+        }
+
+        // Add Edge and WASM plugins
+        internalPlugins.push({
+            name: 'edge-plugin-adapter',
+            setup(build: any) {
+                new EdgePlugin(config).setup(build);
+            }
+        });
+        internalPlugins.push({
+            name: 'wasm-plugin-adapter',
+            setup(build: any) {
+                new WasmPlugin().setup(build);
+            }
+        });
+
         const result = await esbuild.build({
             entryPoints,
             bundle: true,
@@ -86,7 +121,7 @@ export class BundlerStep implements PipelineStep {
             outdir: path.resolve(config.root, config.outDir),
             minify: config.mode === 'production',
             sourcemap: config.mode !== 'production',
-            target: ['es2020'],
+            target: ['es2022'],
             loader: { '.css': 'css' }, // Remove default file loaders for images as our plugin handles them
             metafile: true,
             logLevel: 'info',

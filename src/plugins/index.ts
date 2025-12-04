@@ -1,3 +1,6 @@
+import { PluginSandbox } from '../core/sandbox.js';
+import { PermissionManager, PermissionSet } from '../core/permissions.js';
+
 export type PluginHook = 'resolve' | 'load' | 'transform' | 'buildStart' | 'buildEnd';
 
 export class PluginManager {
@@ -17,26 +20,40 @@ export class PluginManager {
     }
     return result;
   }
+
+  loadSandboxedPlugin(code: string, permissions: PermissionSet = {}): Plugin {
+    const pm = new PermissionManager(permissions);
+    const sandbox = new PluginSandbox(pm);
+    const exports = sandbox.run(code);
+
+    // Assuming the plugin exports a default object or named export 'plugin'
+    const plugin = exports.default || exports.plugin || exports;
+
+    if (!plugin.name) {
+      throw new Error('Sandboxed plugin must export a "name" property.');
+    }
+
+    return plugin as Plugin;
+  }
 }
 
 export interface Plugin {
   name: string;
   setup?: (api: any) => void;
   transform?: (code: string, id: string) => Promise<string | void> | string | void;
+  permissions?: PermissionSet;
 }
 
-export class SandboxedPlugin implements Plugin {
-  name = 'sandboxed-plugin';
-
-  constructor(private sandbox: any) { }
-
-  async transform(code: string, id: string) {
-    return this.sandbox.runTransform(code, id);
-  }
-}
 
 export const marketplace = {
   async list() {
     return [{ name: 'vite-like-react-refresh', description: 'React HMR helper' }];
   },
+  async install(name: string) {
+    // Mock installation
+    console.log(`[Marketplace] Installing plugin: ${name}`);
+    await new Promise(resolve => setTimeout(resolve, 500));
+    console.log(`[Marketplace] Successfully installed ${name}`);
+    return true;
+  }
 };

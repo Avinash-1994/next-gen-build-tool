@@ -4,6 +4,9 @@ import yaml from 'js-yaml';
 
 import { z } from 'zod';
 import { log } from '../utils/logger.js';
+import { detectFramework } from '../core/framework-detector.js';
+import { getFrameworkConfig } from '../plugins/framework-plugins.js';
+import { spaPreset, ssrPreset, ssgPreset } from '../presets/index.js';
 
 export type BuildMode = 'development' | 'production' | 'test';
 
@@ -15,6 +18,15 @@ const BuildConfigSchema = z.object({
   port: z.number().default(5173),
   plugins: z.array(z.any()).optional(),
   esbuildPlugins: z.array(z.any()).optional(),
+  platform: z.enum(['browser', 'node', 'edge']).default('browser'),
+  preset: z.enum(['spa', 'ssr', 'ssg']).default('spa'),
+  federation: z.object({
+    name: z.string(),
+    filename: z.string().default('remoteEntry.js'),
+    exposes: z.record(z.string(), z.string()).optional(),
+    remotes: z.record(z.string(), z.string()).optional(),
+    shared: z.record(z.string(), z.string()).optional(),
+  }).optional(),
 });
 
 export type BuildConfig = {
@@ -25,6 +37,15 @@ export type BuildConfig = {
   port: number;
   plugins?: any[];
   esbuildPlugins?: any[];
+  platform: 'browser' | 'node' | 'edge';
+  preset: 'spa' | 'ssr' | 'ssg';
+  federation?: {
+    name: string;
+    filename: string;
+    exposes?: Record<string, string>;
+    remotes?: Record<string, string>;
+    shared?: Record<string, string>;
+  };
 };
 
 export async function loadConfig(cwd: string): Promise<BuildConfig> {
@@ -72,13 +93,25 @@ export async function loadConfig(cwd: string): Promise<BuildConfig> {
         await fs.unlink(outfile).catch(() => { });
       }
     } else {
-      // Return default config if file not found
+      // Return default config if file not found, with auto-detection
+      log.info('No config file found, attempting auto-detection...');
+      const detected = await detectFramework(cwd);
+
+      let frameworkConfig = {};
+      if (detected && detected.name !== 'vanilla') {
+        log.info(`Detected framework: ${detected.name}`);
+        frameworkConfig = getFrameworkConfig(detected);
+      }
+
       return {
         root: cwd,
         entry: ['src/main.tsx'],
         mode: 'development',
         outDir: 'build_output',
         port: 5173,
+        platform: 'browser',
+        preset: 'spa',
+        ...frameworkConfig,
       };
     }
 
@@ -93,8 +126,13 @@ export async function loadConfig(cwd: string): Promise<BuildConfig> {
     // Ensure root is set
     const root = config.root || cwd;
 
+    let finalConfig = { ...config };
+    if (config.preset === 'spa') finalConfig = { ...finalConfig, ...spaPreset.apply(finalConfig) };
+    if (config.preset === 'ssr') finalConfig = { ...finalConfig, ...ssrPreset.apply(finalConfig) };
+    if (config.preset === 'ssg') finalConfig = { ...finalConfig, ...ssgPreset.apply(finalConfig) };
+
     return {
-      ...config,
+      ...finalConfig,
       root,
     } as BuildConfig;
 

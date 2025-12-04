@@ -41,12 +41,30 @@ export async function initProject(cwd: string) {
         } catch (e) { }
     }
 
+    // Prompt for CSS Framework if not detected
+    // In a real implementation, we would use 'prompts' or 'inquirer'
+    // For now, we'll simulate or check args, but let's assume we want to ask
+    // Since we can't easily do interactive prompts in this environment without a library,
+    // we'll check for a flag or default to asking via console (mocked here)
+
+    // Check if user wants Tailwind (mock logic for now, or check args)
+    // In a real CLI: const response = await prompts({ ... })
+    const useTailwind = process.argv.includes('--tailwind');
+
+    if (useTailwind) {
+        log.info('Tailwind CSS requested via flag');
+        const { TailwindPlugin } = await import('../plugins/css/tailwind.js');
+        const tailwind = new TailwindPlugin();
+        await tailwind.apply(cwd);
+    }
+
     const config = {
         root: '.',
         entry: [entry],
         mode: 'development',
         outDir: 'dist',
-        port: 5173
+        port: 5173,
+        // Add css config if needed
     };
 
     const cfgPath = path.join(cwd, 'nextgen.build.json');
@@ -57,4 +75,8 @@ export async function initProject(cwd: string) {
 
     await fs.writeFile(cfgPath, JSON.stringify(config, null, 2));
     log.success('Created nextgen.build.json');
+
+    if (useTailwind) {
+        log.success('Initialized project with Tailwind CSS');
+    }
 }

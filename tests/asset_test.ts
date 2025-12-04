@@ -42,7 +42,8 @@ export default logo;
             entry: ['src/main.js'],
             mode: 'development' as const,
             outDir: 'dist',
-            port: 3000
+            port: 3000,
+            platform: 'browser' as const
         };
 
         // Run build

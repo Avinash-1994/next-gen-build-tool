@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "npm run build:native && tsc -p tsconfig.build.json && cp nextgen_native.node dist/ && cp src/plugins/*.mjs dist/plugins/ 2>/dev/null || true",
+    "build": "npm run build:native && tsc -p tsconfig.build.json && cp nextgen_native.node dist/ && cp src/plugins/*.mjs dist/plugins/ 2>/dev/null || true && mkdir -p dist/runtime && cp src/runtime/*.js dist/runtime/",
     "build:native": "cd src/native && napi build --platform --release --dts index.d.ts && cp *.node ../../nextgen_native.node 2>/dev/null || true",
     "dev": "node ./dist/cli.js dev",
     "start": "node ./dist/cli.js dev",

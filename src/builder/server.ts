@@ -52,8 +52,9 @@ export async function startBuilderServer(config: BuilderServerConfig) {
     const clients = new Set<any>();
 
     wss.on('connection', (ws) => {
+        (ws as any).id = Math.random().toString(36).substr(2, 9);
         clients.add(ws);
-        console.log('[builder] Client connected');
+        console.log('[builder] Client connected', (ws as any).id);
 
         ws.on('close', () => {
             clients.delete(ws);
@@ -63,7 +64,7 @@ export async function startBuilderServer(config: BuilderServerConfig) {
         ws.on('message', async (data) => {
             try {
                 const message = JSON.parse(data.toString());
-                await handleWebSocketMessage(message, ws, root);
+                await handleWebSocketMessage(message, ws, root, clients);
             } catch (error) {
                 console.error('[builder] WebSocket error:', error);
             }
@@ -130,6 +131,26 @@ async function handleAPI(req: http.IncomingMessage, res: http.ServerResponse, ur
             return;
         }
 
+        // GET /api/federation
+        if (path === '/federation' && req.method === 'GET') {
+            const config = await loadConfig(root);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(config.federation || {}));
+            return;
+        }
+
+        // POST /api/federation
+        if (path === '/federation' && req.method === 'POST') {
+            const body = await getBody(req);
+            const federationConfig = JSON.parse(body);
+            const config = await loadConfig(root);
+            config.federation = federationConfig;
+            await saveConfig(root, config);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+            return;
+        }
+
         // 404
         res.writeHead(404);
         res.end('Not found');
@@ -183,7 +204,7 @@ async function serveBuilderUI(req: http.IncomingMessage, res: http.ServerRespons
 }
 
 // ===== WebSocket Handlers =====
-async function handleWebSocketMessage(message: any, ws: any, root: string) {
+async function handleWebSocketMessage(message: any, ws: any, root: string, clients: Set<any>) {
     switch (message.type) {
         case 'get_config':
             const config = await loadConfig(root);
@@ -193,14 +214,27 @@ async function handleWebSocketMessage(message: any, ws: any, root: string) {
         case 'save_config':
             await saveConfig(root, message.config);
             ws.send(JSON.stringify({ type: 'config_saved', success: true }));
+            // Broadcast update to others
+            broadcast(clients, { type: 'config_update', config: message.config }, ws);
+            break;
+
+        case 'cursor_move':
+            // Broadcast cursor position to all OTHER clients
+            broadcast(clients, {
+                type: 'cursor_update',
+                id: (ws as any).id, // Assuming ws has an ID, or we generate one
+                x: message.x,
+                y: message.y,
+                user: message.user || 'Anonymous'
+            }, ws);
             break;
     }
 }
 
-function broadcast(clients: Set<any>, message: any) {
+function broadcast(clients: Set<any>, message: any, exclude?: any) {
     const data = JSON.stringify(message);
     clients.forEach(client => {
-        if (client.readyState === 1) { // OPEN
+        if (client !== exclude && client.readyState === 1) { // OPEN
             client.send(data);
         }
     });

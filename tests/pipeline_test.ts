@@ -9,8 +9,9 @@ async function testPipeline() {
         root: cwd,
         entry: ['src/main.tsx'],
         mode: 'development' as const,
-        outDir: 'dist_test',
-        port: 3000
+        outDir: 'dist',
+        port: 3000,
+        platform: 'browser' as const
     };
 
     try {
