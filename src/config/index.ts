@@ -1,6 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
-import yaml from 'js-yaml';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const yaml = require('js-yaml');
 
 import { z } from 'zod';
 import { log } from '../utils/logger.js';

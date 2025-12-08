@@ -9,6 +9,8 @@ import fs from 'fs/promises';
 import type { Framework } from '../core/framework-detector.js';
 import { getFrameworkPreset } from '../presets/frameworks.js';
 import { log } from '../utils/logger.js';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
 export interface TransformOptions {
     filePath: string;
@@ -140,27 +142,28 @@ export class UniversalTransformer {
             const reactVersion = await this.getPackageVersion('react');
             const useAutomatic = reactVersion && parseInt(reactVersion) >= 17;
 
-            const result = await babel.transformAsync(code, {
+            // Resolve presets from tool's dependencies, not user's project
+            const output = await babel.transformAsync(code, {
                 filename: filePath,
                 presets: [
                     [
-                        '@babel/preset-react',
+                        require.resolve('@babel/preset-react'),
                         {
                             runtime: useAutomatic ? 'automatic' : 'classic',
                             development: isDev
                         }
                     ],
-                    '@babel/preset-typescript'
+                    require.resolve('@babel/preset-typescript')
                 ],
                 sourceMaps: isDev ? 'inline' : false
             });
 
             return {
-                code: result?.code || code,
-                map: result?.map ? JSON.stringify(result.map) : undefined
+                code: output?.code || code,
+                map: output?.map ? JSON.stringify(output.map) : undefined
             };
         } catch (error: any) {
-            log.error(`React transform failed for ${filePath}:`, error.message);
+            log.error(`React transform failed for ${filePath}: ${error.stack}`);
             // Fallback to vanilla transform
             return this.transformVanilla(code, filePath, isDev);
         }

@@ -59,28 +59,36 @@ export class DependencyPreBundler {
             try {
                 const outfile = path.join(cacheDir, `${dep.replace(/\//g, '_')}.js`);
 
-                // Dynamic require to find exports for CJS modules
+                // Generate ESM proxy content for CJS modules
+                // We need to handle CJS modules (like React) which don't have native ESM exports
                 let proxyContent = '';
+
                 try {
                     const pkgPath = require.resolve(dep, { paths: [this.root] });
                     const pkg = require(pkgPath);
-                    const keys = Object.keys(pkg).filter(key =>
-                        /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) && key !== 'default'
+
+                    // Get ALL properties including non-enumerable ones (like React.createContext)
+                    // Use getOwnPropertyNames to catch properties Object.keys() would miss
+                    const allProps = Object.getOwnPropertyNames(pkg);
+                    const validKeys = allProps.filter(key =>
+                        /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) &&
+                        key !== 'default' &&
+                        key !== '__esModule' &&
+                        typeof pkg[key] !== 'undefined'
                     );
 
-                    // Generate ESM shim
-                    // We use absolute path for import to ensure we get the real module
+                    // Generate proxy that imports default and re-exports all properties
                     proxyContent = `
-                        import module from '${pkgPath.replace(/\\/g, '/')}';
-                        export default module;
-                        ${keys.map(key => `export const ${key} = module.${key};`).join('\n')}
+                        import mod from '${pkgPath.replace(/\\/g, '/')}';
+                        export default mod;
+                        ${validKeys.map(key => `export const ${key} = mod.${key};`).join('\n')}
                     `;
 
-                    log.info(`[PreBundler] Generated proxy for ${dep} with ${keys.length} exports`);
+                    log.info(`[PreBundler] Generated proxy for ${dep} with ${validKeys.length} exports`);
                 } catch (e: any) {
-                    log.warn(`[PreBundler] Failed to analyze exports for ${dep}: ${e.message}`);
-                    // Fallback to direct import
-                    proxyContent = `export * from '${dep}'; import module from '${dep}'; export default module;`;
+                    log.warn(`[PreBundler] Failed to analyze ${dep}, using fallback: ${e.message}`);
+                    // Fallback for pure ESM modules
+                    proxyContent = `export * from '${dep}'; export { default } from '${dep}';`;
                 }
 
                 await build({
