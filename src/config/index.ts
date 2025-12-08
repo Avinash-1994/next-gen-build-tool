@@ -4,8 +4,6 @@ import yaml from 'js-yaml';
 
 import { z } from 'zod';
 import { log } from '../utils/logger.js';
-import { detectFramework } from '../core/framework-detector.js';
-import { getFrameworkConfig } from '../plugins/framework-plugins.js';
 import { spaPreset, ssrPreset, ssgPreset } from '../presets/index.js';
 
 export type BuildMode = 'development' | 'production' | 'test';
@@ -149,14 +147,7 @@ export async function loadConfig(cwd: string): Promise<BuildConfig> {
       }
     } else {
       // Return default config if file not found, with auto-detection
-      log.info('No config file found, attempting auto-detection...');
-      const detected = await detectFramework(cwd);
-
-      let frameworkConfig = {};
-      if (detected && detected.name !== 'vanilla') {
-        log.info(`Detected framework: ${detected.name}`);
-        frameworkConfig = getFrameworkConfig(detected);
-      }
+      log.info('No config file found, using defaults...');
 
       return {
         root: cwd,
@@ -166,7 +157,6 @@ export async function loadConfig(cwd: string): Promise<BuildConfig> {
         port: 5173,
         platform: 'browser',
         preset: 'spa',
-        ...frameworkConfig,
       };
     }
 

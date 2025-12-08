@@ -1,7 +1,7 @@
-import { DetectedFramework } from '../core/framework-detector.js';
+import { FrameworkInfo } from '../core/framework-detector.js';
 import { BuildConfig } from '../config/index.js';
 
-export function getFrameworkConfig(framework: DetectedFramework): Partial<BuildConfig> {
+export function getFrameworkConfig(framework: FrameworkInfo): Partial<BuildConfig> {
     const baseConfig: Partial<BuildConfig> = {
         platform: 'browser',
     };

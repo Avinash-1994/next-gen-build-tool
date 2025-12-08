@@ -132,12 +132,14 @@ export class UniversalTransformer {
 
         try {
             // Try Vue 3 compiler first
-            let compiler;
+            let compiler: any;
             try {
+                // @ts-ignore - Optional dependency
                 compiler = await import('@vue/compiler-sfc');
             } catch {
                 // Fallback to Vue 2 compiler
                 try {
+                    // @ts-ignore - Optional dependency
                     compiler = await import('vue-template-compiler');
                 } catch {
                     log.warn('No Vue compiler found, treating as vanilla');
@@ -209,15 +211,15 @@ export class UniversalTransformer {
         }
 
         try {
+            // @ts-ignore - Optional dependency
             const svelte = await import('svelte/compiler');
 
             const result = svelte.compile(code, {
                 filename: filePath,
                 dev: isDev,
-                css: 'injected', // Inject CSS into JS
-                hydratable: true,
-                generate: 'dom'
-            });
+                css: 'injected' as any, // Inject CSS into JS
+                generate: 'client' as any // Svelte 5 uses 'client'
+            } as any);
 
             return {
                 code: result.js.code,
@@ -245,6 +247,7 @@ export class UniversalTransformer {
             if (filePath.endsWith('.ts')) {
                 // Try to use Angular compiler if available
                 try {
+                    // @ts-ignore - Optional dependency
                     const ngCompiler = await import('@angular/compiler-cli');
 
                     // Use Angular's TypeScript transformer
@@ -350,6 +353,7 @@ export class UniversalTransformer {
      */
     private async transformQwik(code: string, filePath: string, isDev: boolean): Promise<TransformResult> {
         try {
+            // @ts-ignore - Optional dependency
             const qwik = await import('@builder.io/qwik/optimizer');
 
             const result = await qwik.transform({
@@ -406,6 +410,7 @@ export class UniversalTransformer {
         }
 
         try {
+            // @ts-ignore - Optional dependency
             const astro = await import('astro');
             // Astro compilation would go here
             // For now, return as-is

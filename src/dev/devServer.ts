@@ -76,6 +76,22 @@ export async function startDevServer(cfg: BuildConfig) {
 
   log.info('Loaded Environment Variables', { category: 'server', count: Object.keys(publicEnv).length });
 
+  // 2. Detect Framework (Universal Support)
+  const { FrameworkDetector } = await import('../core/framework-detector.js');
+  const frameworkDetector = new FrameworkDetector(cfg.root);
+  const detectedFrameworks = await frameworkDetector.detect();
+  const primaryFramework = detectedFrameworks[0]?.name || 'vanilla';
+
+  log.info(`Detected framework: ${primaryFramework}`, {
+    category: 'server',
+    version: detectedFrameworks[0]?.version,
+    allFrameworks: detectedFrameworks.map(f => f.name).join(', ')
+  });
+
+  // 3. Initialize Universal Transformer
+  const { UniversalTransformer } = await import('../core/universal-transformer.js');
+  const universalTransformer = new UniversalTransformer(cfg.root);
+
   const nativeWorker = new NativeWorker(4); // 4 threads
   const pluginManager = new PluginManager();
   if (cfg.plugins) {
@@ -113,10 +129,24 @@ export async function startDevServer(cfg: BuildConfig) {
   let preBundledDeps = new Map<string, string>();
 
   try {
-    // Common React dependencies that need pre-bundling
-    const commonDeps = ['react', 'react-dom', 'react-dom/client', 'react/jsx-dev-runtime', 'react/jsx-runtime'];
-    preBundledDeps = await preBundler.preBundleDependencies(commonDeps);
-    log.info('Dependencies pre-bundled successfully', { count: preBundledDeps.size });
+    // Framework-specific dependencies to pre-bundle
+    const frameworkDeps: Record<string, string[]> = {
+      react: ['react', 'react-dom', 'react-dom/client', 'react/jsx-dev-runtime', 'react/jsx-runtime'],
+      next: ['react', 'react-dom', 'react-dom/client', 'react/jsx-dev-runtime', 'react/jsx-runtime'],
+      remix: ['react', 'react-dom', 'react-dom/client', 'react/jsx-dev-runtime', 'react/jsx-runtime'],
+      preact: ['preact', 'preact/hooks'],
+      vue: ['vue'],
+      nuxt: ['vue'],
+      svelte: ['svelte'],
+      solid: ['solid-js'],
+      // Other frameworks don't typically need pre-bundling
+    };
+
+    const depsToBundle = frameworkDeps[primaryFramework] || [];
+    if (depsToBundle.length > 0) {
+      preBundledDeps = await preBundler.preBundleDependencies(depsToBundle);
+      log.info('Dependencies pre-bundled successfully', { count: preBundledDeps.size });
+    }
   } catch (error: any) {
     log.warn('Failed to pre-bundle some dependencies:', error.message);
   }
@@ -572,65 +602,63 @@ export async function startDevServer(cfg: BuildConfig) {
       await fs.access(filePath);
       const ext = path.extname(filePath);
 
-      if (ext === '.ts' || ext === '.tsx' || ext === '.jsx' || ext === '.js' || ext === '.mjs') {
+      if (ext === '.ts' || ext === '.tsx' || ext === '.jsx' || ext === '.js' || ext === '.mjs' || ext === '.vue' || ext === '.svelte' || ext === '.astro') {
         let raw = await fs.readFile(filePath, 'utf-8');
 
-        // Native Transform (Caching + Graph)
-        try {
-          // log.debug(`Processing with NativeWorker: ${filePath}`, { category: 'build' });
-          raw = nativeWorker.processFile(filePath);
-        } catch (e) {
-          log.error('NativeWorker error', { category: 'build', error: e });
-          throw e;
+        // Native Transform (Caching + Graph) - only for JS/TS files
+        if (ext === '.ts' || ext === '.tsx' || ext === '.jsx' || ext === '.js' || ext === '.mjs') {
+          try {
+            raw = nativeWorker.processFile(filePath);
+          } catch (e) {
+            log.error('NativeWorker error', { category: 'build', error: e });
+            // Continue with raw content
+          }
         }
 
         // Plugin transform (JS plugins like Tailwind)
         raw = await pluginManager.transform(raw, filePath);
 
-        // Inject Env Vars
-        raw = `
+        // Inject Env Vars (only for JS/TS files)
+        if (ext === '.ts' || ext === '.tsx' || ext === '.jsx' || ext === '.js' || ext === '.mjs') {
+          raw = `
             if (!window.process) window.process = { env: {} };
             Object.assign(window.process.env, ${JSON.stringify(publicEnv)});
             ${raw}
-        `;
-
-        // Use Babel for React Refresh
-        if (ext === '.tsx' || ext === '.jsx') {
-          const babel = await import('@babel/core');
-          const result = await babel.transformAsync(raw, {
-            filename: filePath,
-            presets: [
-              ['@babel/preset-react', { runtime: 'automatic', development: true }],
-              '@babel/preset-typescript'
-            ],
-            // Disabled react-refresh for now to simplify
-            // plugins: ['react-refresh/babel']
-          });
-
-          if (result && result.code) {
-            // Rewrite imports after Babel transform
-            let code = rewriteImports(result.code, cfg.root, preBundledDeps);
-            res.writeHead(200, { 'Content-Type': 'application/javascript' });
-            res.end(code);
-            return;
-          }
+          `;
         }
 
-        const { transform } = await import('esbuild');
-        const result = await transform(raw, {
-          loader: ext.slice(1) as any,
-          sourcemap: 'inline',
-          format: 'esm',
-          target: 'es2020',
-        });
+        // Use Universal Transformer (supports all frameworks)
+        try {
+          const transformResult = await universalTransformer.transform({
+            filePath,
+            code: raw,
+            framework: primaryFramework,
+            root: cfg.root,
+            isDev: true
+          });
 
-        // Rewrite bare imports to node_modules paths
-        let code = result.code;
-        code = rewriteImports(code, cfg.root, preBundledDeps);
+          // Rewrite imports after transformation
+          let code = rewriteImports(transformResult.code, cfg.root, preBundledDeps);
 
-        res.writeHead(200, { 'Content-Type': 'application/javascript' });
-        res.end(code);
-        return;
+          res.writeHead(200, { 'Content-Type': 'application/javascript' });
+          res.end(code);
+          return;
+        } catch (error: any) {
+          log.error(`Universal transformer failed for ${filePath}:`, error.message);
+          // Fallback to esbuild
+          const { transform } = await import('esbuild');
+          const result = await transform(raw, {
+            loader: ext.slice(1) as any,
+            sourcemap: 'inline',
+            format: 'esm',
+            target: 'es2020',
+          });
+
+          let code = rewriteImports(result.code, cfg.root, preBundledDeps);
+          res.writeHead(200, { 'Content-Type': 'application/javascript' });
+          res.end(code);
+          return;
+        }
       }
 
       if (ext === '.css' || ext === '.scss' || ext === '.sass' || ext === '.less' || ext === '.styl') {

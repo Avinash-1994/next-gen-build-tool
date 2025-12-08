@@ -3,7 +3,7 @@
  * Production-ready configurations for all supported frameworks
  */
 
-import type { Framework } from './framework-detector.js';
+import type { Framework } from '../core/framework-detector.js';
 
 export interface FrameworkPreset {
     name: Framework;
