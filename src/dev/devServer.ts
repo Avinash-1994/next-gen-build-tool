@@ -1,6 +1,7 @@
 import http from 'http';
 import path from 'path';
 import fs from 'fs/promises';
+import { fileURLToPath } from 'url';
 import WebSocket, { WebSocketServer } from 'ws';
 import chokidar from 'chokidar';
 import { BuildConfig } from '../config/index.js';
@@ -14,7 +15,9 @@ const require = createRequire(import.meta.url);
 // Load Native Worker
 // When installed via npm, the structure is: node_modules/urja/dist/dev/devServer.js
 // and nextgen_native.node is at: node_modules/urja/dist/nextgen_native.node
-const nativePath = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../nextgen_native.node');
+// and nextgen_native.node is at: node_modules/urja/dist/nextgen_native.node
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const nativePath = path.resolve(__dirname, '../nextgen_native.node');
 const { NativeWorker } = require(nativePath);
 
 import { HMRThrottle } from './hmrThrottle.js';
@@ -26,22 +29,36 @@ import { StatusHandler } from './statusHandler.js';
  * Converts: import React from 'react'
  * To: import React from '/node_modules/react/index.js'
  */
-function rewriteImports(code: string, root: string): string {
-  // Match import statements with bare specifiers (no ./ or ../ or /)
-  return code.replace(
-    /from\s+['"]([^.\/][^'"]*)['"]/g,
+function rewriteImports(code: string, rootDir: string, preBundledDeps?: Map<string, string>): string {
+  // Rewrite bare module imports to use pre-bundled versions or node_modules
+  code = code.replace(
+    /from\s+['"]((?![.\/])(?!https?:\/\/)[^'"]+)['"]/g,
     (match, specifier) => {
-      // Don't rewrite if it's already a full path or starts with http
-      if (specifier.startsWith('http') || specifier.startsWith('/')) {
+      // Skip if already a URL
+      if (specifier.startsWith('http://') || specifier.startsWith('https://')) {
         return match;
       }
 
-      // Rewrite to node_modules path
+      // Rewrite to node_modules path (for non-React packages)
       // The browser will request /node_modules/package/...
       // and we'll serve it from the actual node_modules directory
+
+      // Use pre-bundled version if available
+      if (preBundledDeps && preBundledDeps.has(specifier)) {
+        return `from '${preBundledDeps.get(specifier)}?v=${Date.now()}'`;
+      }
+
       return `from '/node_modules/${specifier}'`;
     }
   );
+
+  // Matches: import './style.css' or import styles from './style.module.css'
+  code = code.replace(
+    /import\s+['"]([^'"]+\.css)['"]/g,
+    (match, path) => `import '${path}?import'`
+  );
+
+  return code;
 }
 
 export async function startDevServer(cfg: BuildConfig) {
@@ -52,8 +69,10 @@ export async function startDevServer(cfg: BuildConfig) {
 
   // Filter public env vars
   const publicEnv = Object.keys(process.env)
-    .filter(key => key.startsWith('NEXTGEN_') || key.startsWith('PUBLIC_'))
-    .reduce((acc, key) => ({ ...acc, [key]: process.env[key] }), {});
+    .filter(key => key.startsWith('NEXTGEN_') || key.startsWith('PUBLIC_') || key === 'NODE_ENV')
+    .reduce((acc, key) => ({ ...acc, [key]: process.env[key] }), {
+      NODE_ENV: process.env.NODE_ENV || 'development'
+    });
 
   log.info('Loaded Environment Variables', { category: 'server', count: Object.keys(publicEnv).length });
 
@@ -83,6 +102,24 @@ export async function startDevServer(cfg: BuildConfig) {
 
   const { StylusPlugin } = await import('../plugins/css/stylus.js');
   pluginManager.register(new StylusPlugin(cfg.root));
+
+  // Initialize Dependency Pre-Bundler
+  const { DependencyPreBundler } = await import('./preBundler.js');
+  const preBundler = new DependencyPreBundler(cfg.root);
+
+  // Scan and pre-bundle dependencies on server start
+  log.info('Scanning dependencies for pre-bundling...');
+  const entryPoint = path.join(cfg.root, 'public', 'index.html');
+  let preBundledDeps = new Map<string, string>();
+
+  try {
+    // Common React dependencies that need pre-bundling
+    const commonDeps = ['react', 'react-dom', 'react-dom/client', 'react/jsx-dev-runtime', 'react/jsx-runtime'];
+    preBundledDeps = await preBundler.preBundleDependencies(commonDeps);
+    log.info('Dependencies pre-bundled successfully', { count: preBundledDeps.size });
+  } catch (error: any) {
+    log.warn('Failed to pre-bundle some dependencies:', error.message);
+  }
 
   const port = cfg.server?.port || cfg.port || 5173;
   const host = cfg.server?.host || 'localhost';
@@ -191,7 +228,15 @@ export async function startDevServer(cfg: BuildConfig) {
     if (url === '/') {
       const p = path.join(cfg.root, 'public', 'index.html');
       try {
-        const data = await fs.readFile(p);
+        let data = await fs.readFile(p, 'utf-8');
+
+        // Inject only client runtime (no React Refresh for now - simplify)
+        const clientScript = `
+    <script type="module" src="/@urja/client"></script>
+        `;
+
+        data = data.replace('<head>', '<head>' + clientScript);
+
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(data);
       } catch (e) {
@@ -201,9 +246,49 @@ export async function startDevServer(cfg: BuildConfig) {
       return;
     }
 
-    if (url === '/@react-refresh') {
-      const runtimePath = path.resolve(cfg.root, 'node_modules/react-refresh/cjs/react-refresh-runtime.development.js');
+    if (url === '/favicon.ico') {
+      const p = path.join(cfg.root, 'public', 'favicon.ico');
       try {
+        const data = await fs.readFile(p);
+        res.writeHead(200, { 'Content-Type': 'image/x-icon' });
+        res.end(data);
+      } catch (e) {
+        // Serve empty response or default icon to avoid 404/500 noise
+        res.writeHead(204);
+        res.end();
+      }
+      return;
+    }
+
+    // Serve pre-bundled dependencies
+    if (url.startsWith('/@urja-deps/')) {
+      const depFile = url.replace('/@urja-deps/', '');
+      const depPath = path.join(cfg.root, 'node_modules', '.urja', depFile);
+      try {
+        const content = await fs.readFile(depPath, 'utf-8');
+        res.writeHead(200, {
+          'Content-Type': 'application/javascript',
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        });
+        res.end(content);
+      } catch (error) {
+        log.error(`Failed to serve pre-bundled dep: ${depFile}`, { error });
+        res.writeHead(404);
+        res.end(`Pre-bundled dependency not found: ${depFile}`);
+      }
+      return;
+    }
+
+    if (url === '/@react-refresh') {
+      try {
+        let runtimePath;
+        try {
+          runtimePath = require.resolve('react-refresh/cjs/react-refresh-runtime.development.js', { paths: [cfg.root] });
+        } catch (e) {
+          // Fallback to manual path
+          runtimePath = path.join(cfg.root, 'node_modules/react-refresh/cjs/react-refresh-runtime.development.js');
+        }
+
         const runtime = await fs.readFile(runtimePath, 'utf-8');
         res.writeHead(200, { 'Content-Type': 'application/javascript' });
         res.end(`
@@ -212,9 +297,116 @@ export async function startDevServer(cfg: BuildConfig) {
           export default exports;
         `);
       } catch (e) {
+        log.error('Failed to resolve React Refresh', { category: 'server', error: e });
         res.writeHead(404);
         res.end('React Refresh runtime not found');
       }
+      return;
+    }
+
+
+
+    if (url === '/@urja/client') {
+      const clientPath = path.resolve(__dirname, '../runtime/client.js');
+      try {
+        const client = await fs.readFile(clientPath, 'utf-8');
+        res.writeHead(200, { 'Content-Type': 'application/javascript' });
+        res.end(client);
+      } catch (e) {
+        res.writeHead(404);
+        res.end('Urja client runtime not found');
+      }
+      return;
+    }
+
+    if (url === '/@urja/error-overlay.js') {
+      const overlayPath = path.resolve(__dirname, '../runtime/error-overlay.js');
+      try {
+        const overlay = await fs.readFile(overlayPath, 'utf-8');
+        res.writeHead(200, { 'Content-Type': 'application/javascript' });
+        res.end(overlay);
+      } catch (e) {
+        res.writeHead(404);
+        res.end('Urja error overlay not found');
+      }
+      return;
+    }
+
+    if (url === '/@urja/react') {
+      res.writeHead(200, { 'Content-Type': 'application/javascript' });
+      res.end(`
+        import React from '/node_modules/react';
+        export const useState = React.useState;
+        export const useEffect = React.useEffect;
+        export const useContext = React.useContext;
+        export const useReducer = React.useReducer;
+        export const useCallback = React.useCallback;
+        export const useMemo = React.useMemo;
+        export const useRef = React.useRef;
+        export const useImperativeHandle = React.useImperativeHandle;
+        export const useLayoutEffect = React.useLayoutEffect;
+        export const useDebugValue = React.useDebugValue;
+        export const useDeferredValue = React.useDeferredValue;
+        export const useTransition = React.useTransition;
+        export const useId = React.useId;
+        export const useSyncExternalStore = React.useSyncExternalStore;
+        export const useInsertionEffect = React.useInsertionEffect;
+        export const Component = React.Component;
+        export const PureComponent = React.PureComponent;
+        export const memo = React.memo;
+        export const forwardRef = React.forwardRef;
+        export const lazy = React.lazy;
+        export const Suspense = React.Suspense;
+        export const createContext = React.createContext;
+        export const isValidElement = React.isValidElement;
+        export const cloneElement = React.cloneElement;
+        export const createElement = React.createElement;
+        export const createRef = React.createRef;
+        export const Children = React.Children;
+        export const Fragment = React.Fragment;
+        export const StrictMode = React.StrictMode;
+        export const version = React.version;
+        export default React;
+      `);
+      return;
+    }
+
+    if (url === '/@urja/react-dom') {
+      res.writeHead(200, { 'Content-Type': 'application/javascript' });
+      res.end(`
+        import ReactDOM from '/node_modules/react-dom';
+        export const createPortal = ReactDOM.createPortal;
+        export const findDOMNode = ReactDOM.findDOMNode;
+        export const hydrate = ReactDOM.hydrate;
+        export const render = ReactDOM.render;
+        export const unmountComponentAtNode = ReactDOM.unmountComponentAtNode;
+        export const version = ReactDOM.version;
+        export default ReactDOM;
+      `);
+      return;
+    }
+
+    if (url === '/@urja/react-dom-client') {
+      res.writeHead(200, { 'Content-Type': 'application/javascript' });
+      res.end(`
+        import Client from '/node_modules/react-dom/client';
+        export const createRoot = Client.createRoot;
+        export const hydrateRoot = Client.hydrateRoot;
+        export default Client;
+      `);
+      return;
+    }
+
+    if (url === '/@urja/react-jsx-dev-runtime') {
+      res.writeHead(200, { 'Content-Type': 'application/javascript' });
+      res.end(`
+        import Runtime from '/node_modules/react/jsx-dev-runtime';
+        export const jsxDEV = Runtime.jsxDEV;
+        export const Fragment = Runtime.Fragment;
+        export const jsx = Runtime.jsx;
+        export const jsxs = Runtime.jsxs;
+        export default Runtime;
+      `);
       return;
     }
 
@@ -239,17 +431,92 @@ export async function startDevServer(cfg: BuildConfig) {
 
     // Serve from node_modules
     if (url.startsWith('/node_modules/')) {
-      const modulePath = path.join(cfg.root, url);
+      let modulePath = path.join(cfg.root, url);
+
       try {
-        await fs.access(modulePath);
-        let data = await fs.readFile(modulePath, 'utf-8');
+        // Handle potential directory or missing extension
+        let stats;
+        try {
+          stats = await fs.stat(modulePath);
+        } catch (e) {
+          // Try appending .js
+          if (!modulePath.endsWith('.js')) {
+            modulePath += '.js';
+            stats = await fs.stat(modulePath);
+          } else {
+            throw e;
+          }
+        }
+
+        // If directory, resolve entry point
+        if (stats.isDirectory()) {
+          const pkgPath = path.join(modulePath, 'package.json');
+          try {
+            const pkgContent = await fs.readFile(pkgPath, 'utf-8');
+            const pkg = JSON.parse(pkgContent);
+            // Prefer module (ESM) > main > index.js
+            let entry = pkg.module || pkg.main || 'index.js';
+            modulePath = path.join(modulePath, entry);
+          } catch (e) {
+            // No package.json, try index.js
+            modulePath = path.join(modulePath, 'index.js');
+          }
+        }
+
         const ext = path.extname(modulePath);
 
-        // Transform JS files from node_modules too
-        if (ext === '.js' || ext === '.mjs') {
-          // Rewrite imports in node_modules files as well
-          data = rewriteImports(data, cfg.root);
+        // Transform JS files from node_modules using esbuild
+        if (ext === '.js' || ext === '.mjs' || ext === '.cjs') {
+          const { build } = await import('esbuild');
+
+          try {
+            // Use esbuild to bundle/transform to ESM
+            const result = await build({
+              entryPoints: [modulePath],
+              bundle: true, // Bundle dependencies of this module
+              format: 'esm',
+              platform: 'browser',
+              write: false,
+              define: {
+                'process.env.NODE_ENV': '"development"',
+                'global': 'window'
+              },
+              plugins: [{
+                name: 'node-modules-resolver',
+                setup(build) {
+                  // Mark other node_modules as external to avoid bundling EVERYTHING
+                  // We want to bundle internal deps of the package, but keep peer deps external
+                  // This is a simplified approach
+                  build.onResolve({ filter: /^[^.\/]|^\.[^.\/]|^\.\.[^\/]/ }, args => {
+                    if (args.path !== modulePath && !args.path.startsWith('.')) {
+                      // Bundle scheduler to avoid dynamic require issues in react-dom
+                      if (args.path === 'scheduler') return null;
+
+                      // Bundle react if imported by react-dom or jsx-dev-runtime (to avoid dynamic require issues)
+                      if (args.path === 'react' && (modulePath.includes('react-dom') || modulePath.includes('jsx-dev-runtime'))) return null;
+
+                      // Bundle react-dom if imported by react-dom/client
+                      if (args.path === 'react-dom' && modulePath.includes('react-dom/client')) return null;
+
+                      return { path: `/node_modules/${args.path}`, external: true };
+                    }
+                    return null;
+                  });
+                }
+              }]
+            });
+
+            const code = result.outputFiles[0].text;
+            res.writeHead(200, { 'Content-Type': 'application/javascript' });
+            res.end(code);
+            return;
+          } catch (e) {
+            log.error(`Failed to transform module: ${url}`, { category: 'server', error: e });
+            // Fallback to raw file if build fails
+          }
         }
+
+        let data = await fs.readFile(modulePath, 'utf-8');
 
         const mime = ext === '.js' || ext === '.mjs' ? 'application/javascript' :
           ext === '.css' ? 'text/css' : 'application/octet-stream';
@@ -257,6 +524,7 @@ export async function startDevServer(cfg: BuildConfig) {
         res.end(data);
         return;
       } catch (e) {
+        log.error(`Failed to serve module: ${url}`, { category: 'server', error: e });
         res.writeHead(404);
         res.end('Module not found');
         return;
@@ -279,7 +547,26 @@ export async function startDevServer(cfg: BuildConfig) {
     // Try to serve from root (src, node_modules, etc)
     // Remove query params
     const cleanUrl = url.split('?')[0];
-    const filePath = path.join(cfg.root, cleanUrl);
+    let filePath = path.join(cfg.root, cleanUrl);
+
+    // Try to resolve extension if file doesn't exist
+    try {
+      await fs.access(filePath);
+    } catch (e) {
+      // Try extensions
+      const extensions = ['.jsx', '.tsx', '.js', '.ts', '.mjs'];
+      let found = false;
+      for (const ext of extensions) {
+        if (await fs.access(filePath + ext).then(() => true).catch(() => false)) {
+          filePath += ext;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        // If still not found, let it fall through to 404 handler (or next logic)
+      }
+    }
 
     try {
       await fs.access(filePath);
@@ -316,12 +603,13 @@ export async function startDevServer(cfg: BuildConfig) {
               ['@babel/preset-react', { runtime: 'automatic', development: true }],
               '@babel/preset-typescript'
             ],
-            plugins: ['react-refresh/babel']
+            // Disabled react-refresh for now to simplify
+            // plugins: ['react-refresh/babel']
           });
 
           if (result && result.code) {
             // Rewrite imports after Babel transform
-            let code = rewriteImports(result.code, cfg.root);
+            let code = rewriteImports(result.code, cfg.root, preBundledDeps);
             res.writeHead(200, { 'Content-Type': 'application/javascript' });
             res.end(code);
             return;
@@ -338,7 +626,7 @@ export async function startDevServer(cfg: BuildConfig) {
 
         // Rewrite bare imports to node_modules paths
         let code = result.code;
-        code = rewriteImports(code, cfg.root);
+        code = rewriteImports(code, cfg.root, preBundledDeps);
 
         res.writeHead(200, { 'Content-Type': 'application/javascript' });
         res.end(code);
@@ -348,6 +636,20 @@ export async function startDevServer(cfg: BuildConfig) {
       if (ext === '.css' || ext === '.scss' || ext === '.sass' || ext === '.less' || ext === '.styl') {
         let raw = await fs.readFile(filePath, 'utf-8');
         raw = await pluginManager.transform(raw, filePath);
+
+        // Check if imported as module
+        if (url.includes('?import')) {
+          const jsModule = `
+            const style = document.createElement('style');
+            style.textContent = ${JSON.stringify(raw)};
+            document.head.appendChild(style);
+            export default ${JSON.stringify(raw)};
+          `;
+          res.writeHead(200, { 'Content-Type': 'application/javascript' });
+          res.end(jsModule);
+          return;
+        }
+
         res.writeHead(200, { 'Content-Type': 'text/css' });
         res.end(raw);
         return;

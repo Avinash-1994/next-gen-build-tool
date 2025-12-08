@@ -11,6 +11,11 @@ import {
 import { CSSOptimizationStep } from '../core/steps/css-optimization.js';
 
 export async function build(cfg: BuildConfig) {
+  console.log('🏗️  Starting Build Pipeline...');
+  console.log('📁 Root:', cfg.root);
+  console.log('📦 Entry:', cfg.entry);
+  console.log('📂 Output:', cfg.outDir);
+
   const pipeline = new BuildPipeline(cfg);
 
   pipeline
@@ -21,5 +26,17 @@ export async function build(cfg: BuildConfig) {
     .addStep(new CSSOptimizationStep())
     .addStep(new OutputterStep());
 
-  await pipeline.execute();
+  // Add timeout to prevent hanging
+  const buildPromise = pipeline.execute();
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Build timeout after 60 seconds')), 60000);
+  });
+
+  try {
+    await Promise.race([buildPromise, timeoutPromise]);
+    console.log('✅ Build completed successfully!');
+  } catch (error: any) {
+    console.error('❌ Build failed:', error.message);
+    throw error;
+  }
 }

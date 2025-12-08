@@ -48,21 +48,10 @@ export class BundlerStep implements PipelineStep {
     async run(ctx: PipelineContext): Promise<void> {
         const { config, entryPoints, pluginManager } = ctx;
 
-        // Check cache first (Optimization: Move this to a separate CachingStep? 
-        // For now, keep it close to the heavy work)
-        const cache = new DiskCache(config.root);
-        await cache.ensure();
-        const key = await cache.keyFromFiles(Object.values(entryPoints));
-
-        // Store cache key in context for OutputterStep
-        (ctx as any).cacheKey = key;
-        (ctx as any).cache = cache;
-
-        if (await cache.has(key)) {
-            log.info('Cache hit, skipping build...');
-            (ctx as any).cacheHit = true;
-            return;
-        }
+        // Skip caching for now - focus on builds completing successfully
+        // TODO: Re-enable after build stability confirmed
+        // const cache = new DiskCache(config.root);
+        // await cache.ensure();
 
         // Register internal plugins
         const outdir = path.resolve(config.root, config.outDir);
@@ -176,26 +165,24 @@ export class OutputterStep implements PipelineStep {
 
     async run(ctx: PipelineContext): Promise<void> {
         const { config } = ctx;
-        const cache = (ctx as any).cache as DiskCache;
-        const key = (ctx as any).cacheKey;
-        const isCacheHit = (ctx as any).cacheHit;
-
         const outdir = path.resolve(config.root, config.outDir);
 
-        if (isCacheHit) {
-            log.info('Restoring artifacts from cache...');
-            await cache.restoreFiles(key, outdir);
-        } else {
-            // Build just finished (files are on disk from esbuild)
-            // We need to cache them
-            try {
-                const files = (await fs.readdir(outdir)).map((f) => path.join(outdir, f));
-                await cache.put({ key, outDir: outdir, files, created: Date.now() });
-                await cache.putFiles(key, files);
-                log.info('Cached build artifacts');
-            } catch (e) {
-                log.warn('Failed to cache build artifacts', { error: e } as any);
+        // Simplified: Just verify the output directory exists
+        // Skip caching for now to prevent hanging
+        try {
+            const stats = await fs.stat(outdir);
+            if (stats.isDirectory()) {
+                const files = await fs.readdir(outdir);
+                log.info(`Output directory contains ${files.length} files`);
+                log.success(`Build artifacts written to: ${outdir}`);
             }
+        } catch (e) {
+            log.warn('Output directory not found, esbuild may have failed');
         }
+
+        // TODO: Re-enable caching after build stability is confirmed
+        // const cache = (ctx as any).cache as DiskCache;
+        // const key = (ctx as any).cacheKey;
+        // await cache.putFiles(key, files);
     }
 }

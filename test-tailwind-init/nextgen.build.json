@@ -1,9 +1,0 @@
-{
-  "root": ".",
-  "entry": [
-    "src/main.jsx"
-  ],
-  "mode": "development",
-  "outDir": "dist",
-  "port": 5173
-}
